@@ -1,2 +1,5 @@
 # CHIP-8-emulator
-a foray into the world of emulation with everyone's favourite, a CHIP-8 emulator
+
+## Synopsis
+
+A work-in-progress attempt at completing a CHIP-8 emulator. Will be coded completely in C.
