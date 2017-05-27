@@ -6,6 +6,15 @@
 //to do: implement so functions use struct, implement the actual display, implement each opcode (perhaps in different file for modularity)
 
 typedef struct {
+  SDL_Surface *screen;
+  SDL_Event event;
+  int key;
+  int x;
+  int y;
+  //int z;
+} Main_Display;
+
+typedef struct {
   unsigned short opcode; //opcodes two bytes long
   unsigned char memory[4096]; //4K memory total, malloc?
 
@@ -20,7 +29,7 @@ typedef struct {
   unsigned char sound_timer;
 
   unsigned char key[16]; //hex keypad, array to store state
-} chip8;
+} Chip8System;
 
 unsigned char chip8_fontset[80] = //each 4px wide & 5px high
 {
@@ -43,6 +52,9 @@ unsigned char chip8_fontset[80] = //each 4px wide & 5px high
 };
 
 int main(int argc, char **argv) {
+
+  Chip8System chip8; //declare Chip8 struct
+
   //setup graphics
   SDL_Surface *screen;
   SDL_Event event;
@@ -56,16 +68,48 @@ int main(int argc, char **argv) {
   while (true) {
     //emulate one cycle
     emulate_cycle();
+    //usleep(400);
 
-    //if (mychip8.drawflag) //if draw flag set
+    if ((chip8->V[15]) == 1) { //if draw flag set
+      chip8->V[15] = 0;
       //drawGraphics()
+    }
 
     setkeys();
-    return 0;
+
+    //add a way for users to quit program
   }
 }
 
-void initialize() {
+/********* SCREEN *******/
+
+void putpixel();
+int draw_screen();
+int clear_screen();
+int update_graphics();
+
+int initialize_screen(Main_Display *display) {
+  if ((SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO) == -1)) {
+    printf("Could not initialize SDL: %s.\n", SDL_GetError());
+    exit(-1);
+  }
+  /*
+   * Initialize the display in a 640x320 32-bit palettized mode,
+   * requesting a software surface
+   */
+  display->screen = SDL_SetVideoMode(640, 320, 32, SDL_SWSURFACE);
+  //use a struct
+  if (display->screen == NULL) {
+      fprintf(stderr, "Couldn't set 640x320x32 video mode: %s\n",
+                      SDL_GetError());
+      exit(1);
+  }
+}
+
+/****************/
+
+
+void initialize_main() {
   pc = 0x200; // Start Program counter at 0x200
   opcode = 0;
   index_reg = 0;
@@ -80,7 +124,7 @@ void initialize() {
 
   //Clear stack
   for (int i = 0; i < 16; i++) {
-    stack = 0;
+    stack[i] = 0;
   }
 
   //Clear registers V0-VF
@@ -90,8 +134,14 @@ void initialize() {
 
   //Clear memory
   for (int m = 0; m < 4096; m++) {
-    memory = 0;
+    memory[m] = 0;
   }
+
+  //Clear hex key pad
+  for (int i = 0; i < 16; i++) {
+    key[i] = 0;
+  }
+
 
   //load in fontset
   for (int i = 0; i < 80; ++i) {
@@ -99,9 +149,13 @@ void initialize() {
   }
 }
 
+void clear_display();
+
 void load_game(char *src) { //load the game
   FILE *game_file = fopen(src, "rb");
   fread(memory[0x200], 0xfff, 1, game_file);
+  //doublecheck the way reading is done
+
   fclose(game_file)
 }
 
@@ -115,7 +169,7 @@ void emulate_cycle() {
     case 0x0000:
       switch(opcode & 0x000F)
       {
-        case 0x0000:
+        case 0x00E0:
           //clear the screen
         break;
 
