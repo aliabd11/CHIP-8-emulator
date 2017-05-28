@@ -1,9 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <SDL.h> //use SDL library keyboard/display
-
 //#include "chip8core.h"
-//to do: implement so functions use struct, implement the actual display, implement each opcode (perhaps in different file for modularity)
+//to do: implement each opcode
 
 typedef struct {
   SDL_Surface *screen;
@@ -52,41 +51,107 @@ unsigned char chip8_fontset[80] = //each 4px wide & 5px high
 };
 
 int main(int argc, char **argv) {
-
   Chip8System chip8; //declare Chip8 struct
 
   //setup graphics
   SDL_Surface *screen;
   SDL_Event event;
-  //use a struct?
 
-  //setup input
+  initialize_screen(screen);
+  initialize_main(chip8); //Reset system
 
-  initialize(); //Reset system
+  if ((argc != 2)) { // If the argument count is invalid
+        printf("Usage: chip8 GAME_FILE\n");
+        return 1;
+  }
+
   load_game(argv[1]); //Load game in from file given
 
-  while (true) {
+  while (true) {  //add ability to quit, variable, SDL_KEY input "esc"
     //emulate one cycle
-    emulate_cycle();
+    emulate_cycle(chip8, screen);
     //usleep(400);
 
     if ((chip8->V[15]) == 1) { //if draw flag set
       chip8->V[15] = 0;
-      //drawGraphics()
+      update_graphics(chip8, screen);
     }
 
-    setkeys();
+    setkeys(chip8);
+  }
 
-    //add a way for users to quit program
+  return 0;
+}
+
+/********* SCREEN ******
+credit for SDL implementation code and screen functions to github user rascal999
+and resource: https://www.libsdl.org/release/SDL-1.2.15/docs/html/guidevideo.html
+*/
+
+void putpixel(Main_Display *display, int x, int y, Uint8 r, Uint8 g, Uint8 b) {
+  /* Here p is the address to the pixel we want to set */
+  Uint32 *p;
+  Uint32 pixel;
+
+  pixel = SDL_MapRGB(display->screen->format, r, g, b);
+
+  p = (Uint32*) display->screen->pixels + y + x;
+  *p = pixel;
+}
+
+int draw_screen(Main_Display *display, int x, int y, int c) {
+  int ytimesw;
+  x = x * 10;
+  y = y * 10;
+
+  (c == 1) ? (c = 128): c = 0;
+
+  if (SDL_MUSTLOCK(display->screen)) {
+    if (SDL_LockSurface(display->screen) == -1) {
+      return 1;
+    }
+  }
+
+  for (int blocky = 0; blocky < 10; blocky++) {
+    ytimesw = y * display->screen->pitch/4;
+    for (int blockx = 0; blockx < 10; blockx++) {
+      putpixel(display, blockx + x, (blocky*(display->screen->pitch/4)) \
+        + ytimesw, c,c,c)
+    }
   }
 }
 
-/********* SCREEN *******/
+int clear_screen(Main_Display *display) {
+  for (int x = 0; x < 32; x++) {
+    for (int y = 0; y < 64; y++) {
+      draw_screen(display, x, y, 0);
+    }
+  }
 
-void putpixel();
-int draw_screen();
-int clear_screen();
-int update_graphics();
+  if (SDL_MUSTLOCK(display->screen)) {
+    SDL_UnlockSurface(display->screen);
+  }
+
+  SDL_Flip(display->screen);
+}
+
+int update_graphics(Chip8System *chip8, Main_Display *display) {
+  clear_display(display);
+
+  for (int x = 0; x < 32; x++) {
+    for (int y = 0; y < 64; y++) {
+      if(chip8->graphics[x][y] != 0) {
+        draw_screen(display, x, y, 1);
+      }
+    }
+  }
+
+  if (SDL_MUSTLOCK(display->screen)) {
+    SDL_UnlockSurface(display->screen);
+  }
+
+  SDL_Flip(display->screen);
+}
 
 int initialize_screen(Main_Display *display) {
   if ((SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO) == -1)) {
@@ -108,58 +173,58 @@ int initialize_screen(Main_Display *display) {
 
 /****************/
 
+void initialize_main(Chip8System *chip8) {
+  chip8->pc = 0x200; // Start Program counter at 0x200
+  chip8->opcode = 0;
+  chip8->index_reg = 0;
+  chip8->stack_ptr = 0;
 
-void initialize_main() {
-  pc = 0x200; // Start Program counter at 0x200
-  opcode = 0;
-  index_reg = 0;
-  stack_ptr = 0;
+  //Reset timers
+  chip8->delay_timer = 0;
+  chip8->sound_timer = 0;
 
   //Clear display
   for (int x = 0; x < 32; x++) {
     for (int y = 0; y < 64; y++) {
-      graphics[x][y] = 0;
+      chip8->graphics[x][y] = 0;
     }
   }
 
   //Clear stack
   for (int i = 0; i < 16; i++) {
-    stack[i] = 0;
+    chip8->stack[i] = 0;
   }
 
   //Clear registers V0-VF
   for (int i = 0; i < 16; i++) {
-    V[i] = 0;
+    chip8->V[i] = 0;
   }
 
   //Clear memory
   for (int m = 0; m < 4096; m++) {
-    memory[m] = 0;
+    chip8->memory[m] = 0;
   }
 
   //Clear hex key pad
   for (int i = 0; i < 16; i++) {
-    key[i] = 0;
+    chip8->key[i] = 0;
   }
-
 
   //load in fontset
   for (int i = 0; i < 80; ++i) {
-    memory[i] = chip8_fontset[i];
+    chip8->memory[i] = chip8_fontset[i];
   }
 }
-
-void clear_display();
 
 void load_game(char *src) { //load the game
   FILE *game_file = fopen(src, "rb");
   fread(memory[0x200], 0xfff, 1, game_file);
-  //doublecheck the way reading is done
+  //double check the way reading is done, will need to loop
 
   fclose(game_file)
 }
 
-void emulate_cycle() {
+void emulate_cycle(Chip8System *chip8, Main_Display *display) {
   opcode = memory[pc] << 8 | memory[pc + 1]; //fetch
   pc += 2; //increment program counter after retrieving
 
@@ -198,7 +263,7 @@ void emulate_cycle() {
   }
 }
 
-void update_timers() {  //update timers, count down 60Hz until 0
+void update_timers(Chip8System *chip8) {  //update timers, count down 60Hz until 0
   if(delay_timer > 0) {
     delay_timer--;
   }
@@ -211,7 +276,7 @@ void update_timers() {  //update timers, count down 60Hz until 0
   }
 }
 
-void setkeys() { //store key press state, press and release
+void setkeys(Chip8System *chip8) { //store key press state, press and release
   //resource used: https://www.libsdl.org/release/SDL-1.2.15/docs/html/guideinputkeyboard.html
   SDL_PollEvent(&event); //pool for event
   switch(event.type) {
@@ -220,7 +285,7 @@ void setkeys() { //store key press state, press and release
 
     case: SDL_KEYUP: //key release detected
       for (int i = 0; i < 16; i++) {
-        key[i] = 0; //clear key array
+        chip8->key[i] = 0; //clear key array
       }
       break;
 
@@ -231,67 +296,67 @@ void setkeys() { //store key press state, press and release
   switch(event.key.keysym.sym) { //read in keyboard events
     //hex keypad maping
     case: SDLK_UP:
-      key[0] = 1;
+      chip8->key[0] = 1;
     break;
 
     case: SDLK_DOWN:
-      key[1] = 1;
+      chip8->key[1] = 1;
     break;
 
     case: SDLK_LEFT:
-      key[2] = 1;
+      chip8->key[2] = 1;
     break;
 
     case: SDLK_RIGHT:
-      key[3] = 1;
+      chip8->key[3] = 1;
     break;
 
     case SDLK_1:
-      key[4] = 1;
+      chip8->key[4] = 1;
     break;
 
     case SDLK_2:
-      key[5] = 1;
+      chip8->key[5] = 1;
     break;
 
     case SDLK_3:
-      key[6] = 1;
+      chip8->key[6] = 1;
     break;
 
     case SDLK_4:
-      key[7] = 1;
+      chip8->key[7] = 1;
     break;
 
     case SDLK_5:
-      key[8] = 1;
+      chip8->key[8] = 1;
     break;
 
     case SDLK_6:
-      key[9] = 1;
+      chip8->key[9] = 1;
     break;
 
     case SDLK_q:
-      key[10] = 1;
+      chip8->key[10] = 1;
     break;
 
     case SDLK_w:
-      key[11] = 1;
+      chip8->key[11] = 1;
     break;
 
     case SDLK_e:
-      key[12] = 1;
+      chip8->key[12] = 1;
     break;
 
     case SDLK_r:
-      key[13] = 1;
+      chip8->key[13] = 1;
     break;
 
     case SDLK_t:
-      key[14] = 1;
+      chip8->key[14] = 1;
     break;
 
     case SDLK_y:
-      key[15] = 1;
+      chip8->key[15] = 1;
     break;
 
     case SDL_QUIT: // window close
