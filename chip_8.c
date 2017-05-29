@@ -228,17 +228,23 @@ void emulate_cycle(Chip8System *chip8, Main_Display *display) {
   opcode = memory[pc] << 8 | memory[pc + 1]; //fetch
   pc += 2; //increment program counter after retrieving
 
+  //given opcode 0x1234
+  //opcode & 0xF000 ; // would give 0x1000
+  //opcode & 0x0F00 ; // would give 0x0200
+  //opcode & 0x0F0F ; // would give 0x0204
+  //opcode & 0x00FF ; // would give 0x0034
+
   //decode and execute
   switch(opcode & 0xF000) //check first four bits of opcode
   {
     case 0x0000:
-      switch(opcode & 0x000F)
+      switch(opcode & 0x00FF)
       {
         case 0x00E0:
           //clear the screen
         break;
 
-        case 0x00E:
+        case 0x00EE:
           //return from subroutines
         break;
 
@@ -251,11 +257,71 @@ void emulate_cycle(Chip8System *chip8, Main_Display *display) {
       pc = opcode & 0x0FFF; //only interested in NNN of opcode 1NNN
     break;
 
-    case 0xa00: //ANNN: Sets I to the address NNN
+    case 0x2000:
+      //Calls subroutine at NNN, *(0xNNN)()
+    break;
+
+    case 0x3000: //3XNN
+      //if (Vx==NN)
+      //skips the next instruction if VX equals NN.
+      //pc += 4
+    break;
+
+    case 0x4000: //4XNN
+      //if Vx!=NN)
+    break;
+
+    case 0x5000:
+      //if(Vx==Vy)
+      //skip next instruction if vx = vy
+    break;
+
+    case 0x6000:
+      //set VX to NN
+    break;
+
+    case 0x7000:
+      //add NN to VX
+    break;
+
+    case 0x8000:
+      switch(opcode & 0x00FF) {
+        //implement subopcodes
+
+        default:
+        printf("Unknown opcode [0x0000]: 0x%X\n", opcode);
+      }
+    break;
+
+    case 0x9000:
+      //skip next instruction is vx != vy
+    break;
+
+    case 0xa000: //ANNN: Sets I to the address NNN
       index_reg = opcode & 0x0FFF;
     break;
 
-    //more opcodes
+    case 0xb000:
+      //jump to address NNN + V0
+    break;
+
+    case 0xc000:
+      //Vx=rand()&NN
+    break;
+
+    case 0xd000:
+      //draw(Vx,Vy,N)
+    break;
+
+    case: 0xe000:
+      //subopcodes
+      //extraswitch statement
+    break;
+
+    case 0xf000:
+      //subopcodes
+      //extraswitchstatement
+    break;
 
     default:
       printf("Unknown opcode: 0x%X\n", opcode);
