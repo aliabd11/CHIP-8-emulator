@@ -225,8 +225,10 @@ void load_game(char *src) { //load the game
 }
 
 void emulate_cycle(Chip8System *chip8, Main_Display *display) {
-  opcode = memory[pc] << 8 | memory[pc + 1]; //fetch
+  opcode = memory[chip8->pc] << 8 | memory[chip8->pc + 1]; //fetch
   pc += 2; //increment program counter after retrieving
+
+  //add boolean for if opcode is found for troubleshooting
 
   //given opcode 0x1234
   //opcode & 0xF000 ; // would give 0x1000
@@ -242,6 +244,8 @@ void emulate_cycle(Chip8System *chip8, Main_Display *display) {
       {
         case 0x00E0:
           //clear the screen
+          clear_screen(display);
+          chip8->pc = chip8->pc + 2;
         break;
 
         case 0x00EE:
@@ -254,17 +258,21 @@ void emulate_cycle(Chip8System *chip8, Main_Display *display) {
     break;
 
     case 0x1000:
-      pc = opcode & 0x0FFF; //only interested in NNN of opcode 1NNN
+      chip8->pc = opcode & 0x0FFF; //only interested in NNN of opcode 1NNN
     break;
 
     case 0x2000:
+      chip8->pc = opcode &
       //Calls subroutine at NNN, *(0xNNN)()
     break;
 
     case 0x3000: //3XNN
       //if (Vx==NN)
-      //skips the next instruction if VX equals NN.
-      //pc += 4
+      //{
+      //  chip8->pc = chip8->pc + 4; //skips the next instruction if VX equals NN.
+      //} else {
+      //  chip8->pc = chip8->pc + 2;
+      //}
     break;
 
     case 0x4000: //4XNN
