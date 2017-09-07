@@ -224,7 +224,7 @@ void load_game(char *src) { //load the game
   fclose(game_file)
 }
 
-void emulate_cycle(Chip8System *chip8, Main_Display *display) {
+/*void emulate_cycle(Chip8System *chip8, Main_Display *display) {
   opcode = memory[chip8->pc] << 8 | memory[chip8->pc + 1]; //fetch
   pc += 2; //increment program counter after retrieving
 
@@ -335,6 +335,501 @@ void emulate_cycle(Chip8System *chip8, Main_Display *display) {
       printf("Unknown opcode: 0x%X\n", opcode);
     break;
   }
+}
+*/
+
+//credit "u/rascal999, need to double check"
+int emulate_cycle(Chip8System *chip8, Main_Display *display)
+{
+   int opfound = 0;
+   int debug = 0;
+   int i, x, tmp;
+
+   unsigned short xcoord = 0;
+   unsigned short ycoord = 0;
+   unsigned short height = 0;
+   unsigned short pixel;
+
+   /* Fetch */
+   chip8->opcode = chip8->memory[chip8->pc] << 8 | chip8->memory[chip8->pc+1];
+
+   if (debug == 1) printf("%x\n",chip8->opcode);
+
+   switch(chip8->opcode & 0xF000)
+   {
+      case 0x1000:
+         chip8->pc=chip8->opcode & 0x0FFF;
+
+         if (debug == 1) printf("pc = %x\n",chip8->opcode & 0x0FFF);
+         opfound = 1;
+      break;
+
+      case 0xA000: /* Checked */
+         chip8->I = chip8->opcode & 0x0FFF;
+
+         if (debug == 1) printf("I = %x\n", chip8->opcode & 0x0FFF);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      case 0x4000:
+         if (chip8->V[(chip8->opcode & 0x0F00) >> 8] != (chip8->opcode & 0x00FF))
+         {
+            chip8->pc = chip8->pc + 4;
+         } else {
+            chip8->pc = chip8->pc + 2;
+         }
+
+         if (debug == 1) printf("pc = %x\n",chip8->pc);
+         opfound = 1;
+      break;
+
+      /* 4XNN - Skips the next instruction if VX doesn't equal NN. */
+
+      case 0xC000:
+         /* 5 should be a random number */
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = 9 & (chip8->opcode & 0x00FF);
+
+         if (debug == 1) printf("V[%x] = %x",(chip8->opcode & 0x0F00) >> 8,9 & (chip8->opcode & 0x00FF));
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* Cxkk - RND Vx, byte
+      Set Vx = random byte AND kk.
+
+      The interpreter generates a random number from 0 to 255, which is then ANDed with the value kk. The results are stored in Vx. See instruction 8xy2 for more information on AND. */
+
+      case 0x6000: /* Checked */
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->opcode & 0x00FF;
+
+         if (debug == 1) printf("V[%x] = %x\n", (chip8->opcode & 0x0F00) >> 8, chip8->opcode & 0x00FF);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      case 0xD000:
+         chip8->V[0xF] = 0;
+         height = chip8->opcode & 0x000F;
+         xcoord = chip8->V[(chip8->opcode & 0x0F00) >> 8];
+         ycoord = chip8->V[(chip8->opcode & 0x00F0) >> 4];
+
+         for (i=0;i<height;i++)
+         {
+            pixel = chip8->memory[chip8->I + i];
+            //printf("sprite %x\n",pixel);
+            for (x=0;x<8;x++)
+            {
+               if ((pixel & (0x80 >> x)) != 0)
+               {
+                  //printf("x %d y %d px %x\n",xcoord,ycoord,pixel);
+                  //printf("%x %d %d\n",chip8->opcode,xcoord,ycoord);
+                  if (chip8->gfx[xcoord+x][ycoord+i] == 1) chip8->V[0xF] = 1;
+                  chip8->gfx[xcoord+x][ycoord+i] ^= 1;
+                }
+            }
+         }
+
+         chip8->DrawFlag = 1;
+
+         if (debug == 1) printf("Draw call %x\n",chip8->opcode);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      case 0x2000: /* Checked */
+         chip8->stack[chip8->sp] = chip8->pc;
+         chip8->sp++;
+         chip8->pc = chip8->opcode & 0x0FFF;
+
+         if (debug == 1) printf("pc = %x\n", chip8->opcode & 0x0FFF);
+         opfound = 1;
+      break;
+
+      case 0x3000:
+         if (chip8->V[(chip8->opcode & 0x0F00) >> 8] == (chip8->opcode & 0x00FF))
+         {
+            chip8->pc = chip8->pc + 4;
+         } else {
+            chip8->pc = chip8->pc + 2;
+         }
+
+         if (debug == 1) printf("V[%x] = %x\n",(chip8->opcode & 0x0F00) >> 8,chip8->V[(chip8->opcode & 0x0F00) >> 8]);
+         opfound = 1;
+      break;
+
+      /* 3XNN - Skips the next instruction if VX equals NN. */
+
+      case 0x7000: /* Checked */
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->V[(chip8->opcode & 0x0F00) >> 8] + (chip8->opcode & 0x00FF);
+
+         if (debug == 1) printf("V[%x] = %x\n", (chip8->opcode & 0x0F00) >> 8,chip8->V[(chip8->opcode & 0x00FF) >> 8] + (chip8->opcode & 0x00FF));
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+   }
+
+   if (opfound == 1)
+   {
+      DecrementTimers(chip8);
+      return 0;
+   }
+
+   switch(chip8->opcode & 0xF0FF)
+   {
+      case 0xF00A:
+         for(i=0;i<16;i++)
+         {
+            if (chip8->key[i] != 0)
+            {
+               chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->key[i];
+               chip8->pc = chip8->pc + 2;
+            }
+         }
+         opfound = 1;
+      break;
+
+      /* FX0A - A key press is awaited, and then stored in VX. */
+
+      case 0xF01E:
+         chip8->I = chip8->I + chip8->V[(chip8->opcode & 0x0F00) >> 8];
+
+         if (debug == 1) printf("I = %x\n",chip8->I);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* Fx1E - ADD I, Vx
+      Set I = I + Vx.
+
+      The values of I and Vx are added, and the results are stored in I. */
+
+      case 0xF018:
+         chip8->sound_timer = chip8->V[(chip8->opcode & 0x0F00) >> 8];
+
+         if (debug == 1) printf("sound_timer = %x\n",chip8->V[(chip8->opcode & 0x0F00) >> 8]);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* FX18 - Sets the sound timer to VX. */
+
+      case 0xF033:
+         chip8->memory[chip8->I] = chip8->V[(chip8->opcode & 0x0F00) >> 8] / 100;
+         chip8->memory[chip8->I + 1] = (chip8->V[(chip8->opcode & 0x0F00) >> 8] / 10) % 10;
+         chip8->memory[chip8->I + 2] = (chip8->V[(chip8->opcode & 0x0F00) >> 8] / 1) % 10;
+
+         if (debug == 1)
+         {
+            printf("Mem[%x] = %x\n",chip8->I, chip8->V[(chip8->opcode & 0x0F00) >> 8] / 100);
+            printf("Mem[%x] = %x\n",chip8->I + 1, (chip8->V[(chip8->opcode & 0x0F00) >> 8] / 10) % 10);
+            printf("Mem[%x] = %x\n",chip8->I + 2, (chip8->V[(chip8->opcode & 0x0F00) >> 8] / 10) % 1);
+            printf("I,I+1,I+2 = %d%d%d\n",chip8->memory[chip8->I],chip8->memory[chip8->I+1],chip8->memory[chip8->I+2]);
+         }
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      case 0xE09E:
+         if (chip8->key[chip8->V[(chip8->opcode & 0x0F00) >> 8]] != 0)
+         {
+            chip8->pc = chip8->pc + 4;
+         } else {
+            chip8->pc = chip8->pc + 2;
+         }
+
+         if (debug == 1) printf("pc = %x\n",chip8->pc);
+         opfound = 1;
+      break;
+
+      /* Ex9E - SKP Vx
+      Skip next instruction if key with the value of Vx is pressed.
+
+      Checks the keyboard, and if the key corresponding to the value of Vx is currently in the down position, PC is increased by 2. */
+
+      case 0xE0A1:
+         if (chip8->key[chip8->V[(chip8->opcode & 0x0F00) >> 8]] != 1)
+         {
+            chip8->pc = chip8->pc + 4;
+         } else {
+            chip8->pc = chip8->pc + 2;
+         }
+
+         if (debug == 1) printf("key[%x] = %x\n",chip8->V[(chip8->opcode & 0x0F00) >> 8],chip8->key[chip8->V[(chip8->opcode & 0x0F00) >> 8]]);
+         opfound = 1;
+      break;
+
+      /* ExA1 - SKNP Vx
+      Skip next instruction if key with the value of Vx is not pressed.
+
+      Checks the keyboard, and if the key corresponding to the value of Vx is currently in the up position, PC is increased by 2. */
+
+      case 0xF007:
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->delay_timer;
+
+         if (debug == 1) printf("V[%x] = %x\n",(chip8->opcode & 0x0F00) >> 8,chip8->delay_timer);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* FX07 - Sets VX to the value of the delay timer. */
+
+      case 0xF015:
+         chip8->delay_timer = chip8->V[(chip8->opcode & 0x0F00) >> 8];
+
+         if (debug == 1) printf("delay_timer = %x\n",chip8->V[(chip8->opcode & 0x0F00) >> 8]);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* FX15 - Sets the delay timer to VX. */
+
+      case 0xF065:
+         for(i=0;i<=((chip8->opcode & 0x0F00) >> 8);i++)
+         {
+            chip8->V[i] = chip8->memory[chip8->I + i];
+
+            if (debug == 1) printf("V[%x] is %x\n",i,chip8->memory[chip8->I + i]);
+            opfound = 1;
+         }
+         chip8->pc = chip8->pc + 2;
+      break;
+
+      case 0xF029:
+         /* chip8->I = chip8->memory[chip8->V[(chip8->opcode & 0x0F00) >> 8]*5]; -- The great bug */
+         chip8->I = chip8->V[(chip8->opcode & 0x0F00) >> 8]*5;
+
+         if (debug == 1) printf("I is %x\n",chip8->I);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* FX29 - Sets I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal) are represented by a 4x5 font. */
+
+      case 0xF055:
+         for(i=0;i<(chip8->opcode & 0x0F00) >> 8;i++)
+         {
+            /* unsigned short * ir = chip8->I+i;
+            unsigned short * ir;
+            ir = (unsigned short *) chip8->V[i]; */
+            chip8->memory[chip8->I+i] = chip8->V[(chip8->opcode & 0x0F00) >> 8];
+
+            if (debug == 1) printf("V[%x] = %x\n",i,chip8->I+i);
+         }
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* FX55 - Stores V0 to VX in memory starting at address I.[4] */
+   }
+
+   if (opfound == 1)
+   {
+      DecrementTimers(chip8);
+      return 0;
+   }
+
+   switch(chip8->opcode & 0x00FF)
+   {
+      case 0x00E0:
+         ClearDisplay(display);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      case 0x00EE:
+         chip8->sp=chip8->sp - 1;
+         chip8->pc = chip8->stack[chip8->sp];
+
+         if (debug == 1) printf("pc = %x\n", chip8->opcode & 0x0FFF);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+   }
+
+   if (opfound == 1)
+   {
+      DecrementTimers(chip8);
+      return 0;
+   }
+
+   switch(chip8->opcode & 0xF00F)
+   {
+      case 0x8000: /* 0x8XY0 */
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->V[(chip8->opcode & 0x00F0) >> 4];
+
+         if (debug == 1) printf("V[%x] = %x\n",(chip8->opcode & 0x0F00) >> 8,chip8->V[(chip8->opcode & 0x0F00) >> 8]);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* 8XY0 - Sets VX to the value of VY. */
+
+      case 0x8002:
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->V[(chip8->opcode & 0x0F00) >> 8] & chip8->V[(chip8->opcode & 0x00F0) >> 4];
+
+         if (debug == 1) printf("V[%x] = %x\n",(chip8->opcode & 0x0F00) >> 8,chip8->V[(chip8->opcode & 0x0F00) >> 8]);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* 8XY2 - Sets VX to VX and VY. */
+
+      case 0x8003:
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->V[(chip8->opcode & 0x0F00) >> 8] ^ chip8->V[(chip8->opcode & 0x00F0) >> 4];
+
+         if (debug == 1) printf("V[%x] = %x\n",(chip8->opcode & 0x0F00) >> 8,chip8->V[(chip8->opcode & 0x0F00) >> 8]);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* 8xy3 - XOR Vx, Vy
+      Set Vx = Vx XOR Vy.
+
+      Performs a bitwise exclusive OR on the values of Vx and Vy, then stores the result in Vx. An exclusive OR compares the corrseponding bits from two values, and if the bits are not both the same, then the corresponding bit in the result is set to 1. Otherwise, it is 0. */
+
+      case 0x8004:
+         tmp = chip8->V[(chip8->opcode & 0x0F00) >> 8];
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->V[(chip8->opcode & 0x0F00) >> 8] + chip8->V[(chip8->opcode & 0x00F0) >> 4];
+
+         if ((tmp + chip8->V[(chip8->opcode & 0x00F0) >> 4]) > 255)
+         {
+            chip8->V[0xF] = 1;
+         } else {
+            chip8->V[0xF] = 0;
+         }
+
+         if (debug == 1) printf("V[%x] = %x. V[F] = %x\n",(chip8->opcode & 0x0F00) >> 8,chip8->V[(chip8->opcode & 0x0F00) >> 8],chip8->V[0xF]);
+
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* 8xy4 - ADD Vx, Vy
+      Set Vx = Vx + Vy, set VF = carry.
+
+      The values of Vx and Vy are added together. If the result is greater than 8 bits (i.e., > 255,) VF is set to 1, otherwise 0. Only the lowest 8 bits of the result are kept, and stored in Vx. */
+
+      /* 8XY4    Adds VY to VX. VF is set to 1 when there's a carry, and to 0 when there isn't. */
+
+      case 0x8005:
+         if (chip8->V[(chip8->opcode & 0x0F00) >> 8] > chip8->V[(chip8->opcode & 0x00F0) >> 4])
+         {
+            chip8->V[0xF] = 1;
+         } else {
+            chip8->V[0xF] = 0;
+         }
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->V[(chip8->opcode & 0x0F00) >> 8] - chip8->V[(chip8->opcode & 0x00F0) >> 4];
+
+         if (debug == 1) printf("V[%x] = %x. V[0xF] = %x\n",(chip8->opcode & 0x0F00) >> 8,chip8->V[(chip8->opcode & 0x0F00) >> 8],chip8->V[0xF]);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* 8xy5 - SUB Vx, Vy
+      Set Vx = Vx - Vy, set VF = NOT borrow.
+
+      If Vx > Vy, then VF is set to 1, otherwise 0. Then Vy is subtracted from Vx, and the results stored in Vx. */
+
+      /* 8XY5    VY is subtracted from VX. VF is set to 0 when there's a borrow, and 1 when there isn't. */
+
+      case 0x800E:
+         if ((chip8->V[(chip8->opcode & 0x0F00) >> 8] >> 8) == 1)
+         {
+            chip8->V[0xF] = 1;
+         } else {
+            chip8->V[0xF] = 0;
+         }
+         chip8->V[(chip8->opcode & 0x0F00) >> 8] = chip8->V[(chip8->opcode & 0x0F00) >> 8] * 2;
+
+         if (debug == 1) printf("V[%x] = %x. V[0xF] = %x\n",(chip8->opcode & 0x0F00) >> 8,chip8->V[(chip8->opcode & 0x0F00) >> 8],chip8->V[0xF]);
+         chip8->pc = chip8->pc + 2;
+         opfound = 1;
+      break;
+
+      /* 8xyE - SHL Vx {, Vy}
+      Set Vx = Vx SHL 1.
+
+      If the most-significant bit of Vx is 1, then VF is set to 1, otherwise to 0. Then Vx is multiplied by 2. */
+
+      case 0x9000:
+         if (chip8->V[(chip8->opcode & 0x0F00) >> 8] != chip8->V[(chip8->opcode & 0x00F0) >> 4])
+         {
+            chip8->pc = chip8->pc + 4;
+         } else {
+            chip8->pc = chip8->pc + 2;
+         }
+
+         if (debug == 1) printf("pc = %x\n",chip8->pc);
+         opfound = 1;
+      break;
+
+
+      /* 9XY0 - Skips the next instruction if VX doesn't equal VY. */
+   }
+
+   if(chip8->delay_timer > 0)
+   {
+      chip8->delay_timer=chip8->delay_timer - 1;
+   }
+
+   if(chip8->sound_timer > 0)
+   {
+      if(chip8->sound_timer == 1)
+      printf("BEEP!\n");
+      chip8->sound_timer=chip8->sound_timer - 1;
+   }
+
+   if (opfound == 0)
+   {
+      printf("%x not found.\n",chip8->opcode);
+      exiterror(20);
+   }
+
+   /*
+      More accurate and complete instruction set (and general overview of CHIP8) available at http://devernay.free.fr/hacks/chip8/C8TECH10.HTM
+
+      0NNN - Calls RCA 1802 program at address NNN.
+      00E0 - Clears the screen.
+      00EE - Returns from a subroutine.
+      1NNN - Jumps to address NNN.
+      2NNN - Calls subroutine at NNN.
+      3XNN - Skips the next instruction if VX equals NN.
+      4XNN - Skips the next instruction if VX doesn't equal NN.
+      5XY0 - Skips the next instruction if VX equals VY.
+      6XNN - Sets VX to NN.
+      7XNN - Adds NN to VX.
+      8XY0 - Sets VX to the value of VY.
+      8XY1 - Sets VX to VX or VY.
+      8XY2 - Sets VX to VX and VY.
+      8XY3 - Sets VX to VX xor VY.
+      8XY4 - Adds VY to VX. VF is set to 1 when there's a carry, and to 0 when there isn't.
+      8XY5 - VY is subtracted from VX. VF is set to 0 when there's a borrow, and 1 when there isn't.
+      8XY6 - Shifts VX right by one. VF is set to the value of the least significant bit of VX before the shift.[2]
+      8XY7 - Sets VX to VY minus VX. VF is set to 0 when there's a borrow, and 1 when there isn't.
+      8XYE - Shifts VX left by one. VF is set to the value of the most significant bit of VX before the shift.[2]
+      9XY0 - Skips the next instruction if VX doesn't equal VY.
+      ANNN - Sets I to the address NNN.
+      BNNN - Jumps to the address NNN plus V0.
+      CXNN - Sets VX to a random number and NN.
+      DXYN - Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels. Each row of 8 pixels is read as bit-coded (with the most significant bit of each byte displayed on the left) starting from memory location I; I value doesn't change after the execution of this instruction. As described above, VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that doesn't happen.
+      EX9E - Skips the next instruction if the key stored in VX is pressed.
+      EXA1 - Skips the next instruction if the key stored in VX isn't pressed.
+      FX07 - Sets VX to the value of the delay timer.
+      FX0A - A key press is awaited, and then stored in VX.
+      FX15 - Sets the delay timer to VX.
+      FX18 - Sets the sound timer to VX.
+      FX1E - Adds VX to I.[3]
+      FX29 - Sets I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal) are represented by a 4x5 font.
+      FX33 - Stores the Binary-coded decimal representation of VX, with the most significant of three digits at the address in I, the middle digit at I plus 1, and the least significant digit at I plus 2. (In other words, take the decimal representation of VX, place the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.)
+      FX55 - Stores V0 to VX in memory starting at address I.[4]
+      FX65 - Fills V0 to VX with values from memory starting at address I.[4]
+   */
+
+   /* Decode */
+
+   /* Execute */
+   return 0;
 }
 
 void update_timers(Chip8System *chip8) {  //update timers, count down 60Hz until 0
